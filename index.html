@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cat Catcher 2000</title>
+</head>
+<body>
+<script src="js/phaser.min.js"></script>
+<script src="js/Plane.js"></script>
+<script src="js/Point.js"></script>
+<div id="test">
+
+</div>
+<script>
+    const game = new Phaser.Game(1800, 1600, Phaser.AUTO, 'test', {
+        preload,
+        create,
+        update,
+        render
+    });
+
+    const SQUARE_SIDE_LEN = 50;
+
+    let cat, catcher, cursors, txtScore, score;
+
+    function preload() {
+        game.load.image('cat', 'img/cat.png');
+        game.load.image('catcher', 'img/catcher.png');
+        game.load.image('bg', 'img/bg.png');
+    }
+
+    function drawPanel(graphics, pointerList) {
+        let x, y;
+        Array(100).fill(null).map((item, idx) => {
+            x = idx % 10 * SQUARE_SIDE_LEN + 50;
+            y = Math.floor(idx / 10) * SQUARE_SIDE_LEN + 50;
+
+            let color = 0x6495ED;
+            let lineColor = 0xffffff;
+            let lineWidth = 1;
+
+            if (pointerList) {
+                pointerList.forEach(pointer => {
+                    let px = pointer.x * SQUARE_SIDE_LEN + 50;
+                    let py = pointer.y * SQUARE_SIDE_LEN + 50;
+                    if (px === x && py === y) {
+                        color = 0xff00ff;
+                        lineColor = 0x000000;
+                        lineWidth = 2;
+
+                        try {
+                            let pInfo = pointMap[pointer.coor2Str()];
+                            if (pInfo.spec === 'btCross' || pInfo.spec === 'bwCross') {
+                                color = 0xffff00;
+                            }
+
+                            if (pInfo.spec === 'h') {
+                                color = 0x000000;
+                            }
+                        } catch (e) {
+                            console.error('point not exist')
+                        }
+                    }
+                });
+            }
+
+            graphics.beginFill(color);
+            graphics.lineStyle(lineWidth, lineColor, 1);
+
+            graphics.drawRect(x, y, SQUARE_SIDE_LEN, SQUARE_SIDE_LEN);
+            graphics.endFill();
+        });
+
+        Array(100).fill(null).map((item, idx) => {
+
+            x = idx % 10 * SQUARE_SIDE_LEN + 650;
+            y = Math.floor(idx / 10) * SQUARE_SIDE_LEN + 50;
+
+            graphics.beginFill(0x6495ED);
+            graphics.lineStyle(1, 0xffffff, 1);
+
+            graphics.drawRect(x, y, SQUARE_SIDE_LEN, SQUARE_SIDE_LEN);
+            graphics.endFill();
+
+        });
+    }
+
+    function calcIdx(cx, cy) {
+        return new Point(Math.floor((cx - SQUARE_SIDE_LEN) / SQUARE_SIDE_LEN), Math.floor((cy - SQUARE_SIDE_LEN) / SQUARE_SIDE_LEN));
+    }
+
+    let startPoint = {};
+    let endPoint = {};
+    let planePos = [];
+
+    let plane = new Plane();
+    let planeList = [];
+
+    let pointMap = {};
+
+    function drawCoordination() {
+        for (let i = 0; i < 10; i++) {
+            let x = SQUARE_SIDE_LEN + i * 50 + 25,
+                y = 25;
+
+            game.add.text(x, y, i + 1, {font: "20px Arial", fill: "#ffffff", align: "center"}).anchor.set(0.5);
+            game.add.text(y, x, i + 1, {font: "20px Arial", fill: "#ffffff", align: "center"}).anchor.set(0.5);
+        }
+    }
+
+    function create() {
+        const graphics = game.add.graphics(0, 0);
+        drawPanel(graphics);
+        drawCoordination();
+
+        graphics.inputEnabled = true;
+        graphics.input.useHandCursor = true;
+
+
+        graphics.events.onInputDown.add(event => {
+            startPoint = calcIdx(graphics.input.pointerX(), graphics.input.pointerY());
+            
+            if (planeList.length < 3 || (planeList.length === 3 && plane.state < 4)) {
+                graphics.clear();
+
+                drawPanel(graphics, planePos.concat([Object.assign(new Point(), startPoint)]));
+            }
+
+            if (playState === 1) {
+                console.info(pointMap[startPoint.coor2Str()].spec)
+            }
+        }, this);
+
+        let playState = 0;
+
+        graphics.events.onInputUp.add(event => {
+            if (planeList.length < 3 || (planeList.length === 3 && plane.state < 4)) {
+                endPoint = calcIdx(graphics.input.pointerX(), graphics.input.pointerY());
+
+                let pointerList = [];
+                let lineDirection = 0;
+
+                // get line points
+                if (startPoint.x === endPoint.x) {
+                    for (let i = Math.min(startPoint.y, endPoint.y); i <= Math.max(startPoint.y, endPoint.y); i++) {
+                        pointerList.push(new Point(startPoint.x, i));
+                    }
+                    lineDirection = 0;
+
+                } else if (startPoint.y === endPoint.y) {
+                    for (let i = Math.min(startPoint.x, endPoint.x); i <= Math.max(startPoint.x, endPoint.x); i++) {
+                        pointerList.push(new Point(i, startPoint.y));
+                    }
+                    lineDirection = 1;
+                }
+
+                let canDraw = false;
+
+                // is can draw according to the plane drawing state
+                switch (plane.state) {
+                    case 1: // draw body
+                        if (pointerList.length === 4) {
+                            for (let i = 0; i < 4; i++) {
+                                let id = pointerList[i].coor2Str();
+
+                                if (pointMap[id]) {
+                                    if (pointMap[id].planeId === plane.id) {
+                                        canDraw = true;
+                                    } else {
+                                        canDraw = false;
+                                        break;
+                                    }
+                                } else {
+                                    pointMap[id] = {
+                                        planeId: plane.id,
+                                        spec: 'b'
+                                    };
+                                    canDraw = true;
+                                }
+                            }
+
+                            if (canDraw) {
+                                plane.body = pointerList.map(point => {
+                                    return point.coor2Str();
+                                });
+                                plane.bodyDirection = lineDirection;
+                                plane.state++;
+
+                                planeList.push(plane);
+                            }
+                        }
+                        break;
+                    case 2: // draw wing
+                        if (pointerList.length === 5
+                            && lineDirection !== plane.bodyDirection
+                            && (pointerList[2].coor2Str() === plane.body[1] || pointerList[2].coor2Str() === plane.body[2])) {
+                            for (let i = 0; i < 5; i++) {
+                                let id = `p_${pointerList[i].x}_${pointerList[i].y}`;
+                                if (pointMap[id]) {
+                                    if (pointMap[id].planeId === plane.id) {
+                                        pointMap[id].spec = 'bwCross';
+
+                                        if (pointerList[2].coor2Str() === plane.body[1]) {
+                                            pointMap[plane.body[0]].spec = 'h';
+                                        }
+                                        if (pointerList[2].coor2Str() === plane.body[2]) {
+                                            pointMap[plane.body[3]].spec = 'h';
+                                        }
+
+                                        canDraw = true;
+                                    } else {
+                                        canDraw = false;
+                                        break;
+                                    }
+                                } else {
+                                    pointMap[id] = {
+                                        planeId: plane.id,
+                                        spec: 'w'
+                                    };
+                                    canDraw = true;
+                                }
+                            }
+                            if (canDraw) {
+                                plane.wing = pointerList.map(point => {
+                                    return `p_${point.x}_${point.y}`
+                                });
+                                plane.wingDirection = lineDirection;
+                                plane.state++;
+                            }
+                        }
+                        break;
+                    case 3: // draw tail
+                        if (pointerList.length === 3
+                            && lineDirection !== plane.bodyDirection
+                            && (plane.wing[2] === plane.body[1] && pointerList[1].coor2Str() === plane.body[3])
+                            || (plane.wing[2] === plane.body[2] && pointerList[1].coor2Str() === plane.body[0])) {
+
+                            for (let i = 0; i < 3; i++) {
+                                let id = `p_${pointerList[i].x}_${pointerList[i].y}`;
+                                if (pointMap[id]) {
+                                    if (pointMap[id].planeId === plane.id) {
+                                        pointMap[id].spec = 'btCross';
+                                        canDraw = true;
+                                    } else {
+                                        canDraw = false;
+                                        break;
+                                    }
+                                } else {
+                                    pointMap[id] = {
+                                        planeId: plane.id,
+                                        spec: 't'
+                                    };
+                                    canDraw = true;
+                                }
+                            }
+                            if (canDraw) {
+                                plane.tail = pointerList.map(point => {
+                                    return `p_${point.x}_${point.y}`
+                                });
+                                plane.tailDirection = lineDirection;
+                                plane.state++;
+                                if (planeList.length < 3) {
+                                    plane = new Plane();
+                                }
+                            }
+                        }
+                        break;
+                }
+
+
+                if (canDraw) {
+                    planePos.push(...pointerList);
+                    graphics.clear();
+                }
+
+                drawPanel(graphics, planePos);
+            } else {
+                playState = 1;
+            }
+        }, this);
+
+
+        window.graphics = graphics;
+    }
+
+    function update() {
+        //
+    }
+
+
+    function render() {
+        // console.info(graphics.input.sprite)
+        // game.debug.text("Over: " + graphics.input.pointerX(), 32, 32);
+        // game.debug.text(game.input.mouse.locked, 320, 32);
+
+    }
+</script>
+</body>
+</html>
